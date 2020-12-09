@@ -89,7 +89,7 @@ let combine_child_maps map_1 map_2 =
     let map_2_list = string_to_intlist_alt string_of_map in
     combine_map_and_list map_1 map_2_list
 
-let merge_3_intlist root left right = 
+let merge_3_intlist (root:int64 list) (left:int64 list) (right:int64 list) = 
     (* root_map stores map of elements in root node *)
     let root_map = IntMap.empty in
     let root_map = create_map root root_map in
@@ -110,12 +110,14 @@ let merge_3_intlist root left right =
 
 module NewList = struct
     type t = int64 list
+    let t = Irmin.Type.(list (int64))
     let of_string = string_to_intlist
     let to_string = intlist_to_string ""
     let merge ~old a b =
-    let open Irmin.Merge.Infix in
-    old () >|=* fun old ->
-    merge_3_intlist old a b
+        let open Irmin.Merge.Infix in
+		old >|=? fun old ->
+        let merged_list = merge_3_intlist old a b in
+        Irmin.Merge.ok merged_list
     let merge = Irmin.Merge.(option (v t merge))
 end
 
