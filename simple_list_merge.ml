@@ -22,7 +22,7 @@ module IntMap = Map.Make(Int64)
 
 let fold_method m = 
     (* get string of ints from keys of a map *)
-    IntMap.fold (fun k v acc -> acc ^ Int64.to_string k ^ ";") m "";;
+    IntMap.fold (fun k v acc -> acc ^ Int64.to_string k ^ ";") m ""
 
 let rec create_map head map =
     (* create a map from list of ints *)
@@ -115,9 +115,10 @@ module NewList = struct
     let to_string = intlist_to_string ""
     let merge ~old a b =
         let open Irmin.Merge.Infix in
-		old >|=? fun old ->
+        old () >|=* fun old ->
+        let old = match old with None -> [] | Some o -> o in
         let merged_list = merge_3_intlist old a b in
-        Irmin.Merge.ok merged_list
+        merged_list
     let merge = Irmin.Merge.(option (v t merge))
 end
 
