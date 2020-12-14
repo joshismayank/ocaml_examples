@@ -13,16 +13,7 @@ let string_to_intlist s =
     let s = String.sub s 1 (String.length s - 2) in
     List.map int_of_string (String.split_on_char ';' s)
 
-let string_to_intlist_alt s =
-    (* convert string of ints seperated by ';' to list of ints *)
-    let s = String.sub s 0 (String.length s - 1) in
-    List.map Int64.of_string (String.split_on_char ';' s)
-
 module IntMap = Map.Make(Int64)
-
-let fold_method m = 
-    (* get string of ints from keys of a map *)
-    IntMap.fold (fun k v acc -> acc ^ Int64.to_string k ^ ";") m ""
 
 let rec create_map head map =
     (* create a map from list of ints *)
@@ -55,25 +46,13 @@ let rec modify_root_map_with_child_elements head root_map child_map =
                 let new_root_map = IntMap.add x new_count root_map in
                 modify_root_map_with_child_elements xs new_root_map child_map
 
-let rec get_new_list curr_list map new_list = 
-    (* append items from curr_list in new_list if count of element in map is 3 *)
-    match curr_list with 
-        | [] -> new_list
-        | x::xs -> let count = find_count_in_map map x in
-            if count < 3 then get_new_list curr_list map new_list
-            else get_new_list curr_list map (x::new_list)
-
 let create_list_from_root_map root_map = 
     (* iterate over root_map and accumulate items with count=3 in acc(a list) *)
-    let string_of_map = fold_method root_map in
-    let curr_list = string_to_intlist_alt string_of_map in
-    get_new_list curr_list root_map []
+    IntMap.fold (fun k v acc -> if v = 3 then k::acc else acc) root_map []
 
 let create_list_from_map map acc =
     (* iterate over root_map and accumulate all items in acc(a list) *)
-    let string_of_map = fold_method map in
-    let curr_list = string_to_intlist_alt string_of_map in
-    curr_list
+    IntMap.fold (fun k v acc -> k::acc) map []
 
 let rec combine_map_and_list map list =
     (* if element of list not in map then add element in map *)
@@ -85,22 +64,18 @@ let rec combine_map_and_list map list =
 
 let combine_child_maps map_1 map_2 = 
     (* iterate over map_2 and add elements in map_1 if missing *)
-    let string_of_map = fold_method map_2 in
-    let map_2_list = string_to_intlist_alt string_of_map in
+    let map_2_list = create_list_from_map map_2 [] in
     combine_map_and_list map_1 map_2_list
 
 let merge_3_intlist (root:int64 list) (left:int64 list) (right:int64 list) = 
     (* root_map stores map of elements in root node *)
-    let root_map = IntMap.empty in
-    let root_map = create_map root root_map in
+    let root_map = create_map root IntMap.empty in
     (* left_child_map stores map of elements in left_node not present in root_node *)
-    let left_child_map = IntMap.empty in
-    let left_child_map = handle_child_elements left left_child_map root_map in
+    let left_child_map = handle_child_elements left IntMap.empty root_map in
     (* root_map stores count of elements encountered in root_node and left_node *)
     let root_map = modify_root_map_with_child_elements left root_map left_child_map in
     (* right_child_map stores map of elements in left_node not present in root_node *)
-    let right_child_map = IntMap.empty in
-    let right_child_map = handle_child_elements right right_child_map root_map in
+    let right_child_map = handle_child_elements right IntMap.empty root_map in
     (* root_map stores count of elements encountered in root_node, left_node, right_node *)
     let root_map = modify_root_map_with_child_elements right root_map right_child_map in
     let new_list = create_list_from_root_map root_map in
@@ -123,3 +98,37 @@ module NewList = struct
 end
 
 module Git_store = Irmin_unix.Git.FS.KV(NewList)
+
+let git_config = Irmin_git.config ~bare:true "/tmp/irmin_list"
+
+let info message = Irmin_unix.info ~author:"Example" "%s" message
+
+(* create master branch *)
+let master = Lwt_main.run begin Git_store.Repo.v git_config >>= Git_store.master end
+
+(* commit val in master *)
+let commit_in_master val1 = Lwt_main.run begin
+Git_store.set_exn master ["path"] val1 ~info:(info "random") end
+
+(* create local branch *)
+let local = Lwt_main.run begin Git_store.Repo.v git_config >>= fun repo -> Git_store.of_branch repo "local" end
+
+(* commit val in local *)
+let commit_in_local val1 = Lwt_main.run begin
+Git_store.set_exn local ["path"] val1 ~info:(info "random") end
+
+(* merge local in master *)
+let merge_in_local () = Lwt_main.run begin
+Git_store.merge_into ~into:local master ~info:(info "merging into local") end
+
+(* merge master in local *)
+let merge_in_master () = Lwt_main.run begin
+Git_store.merge_into ~into:master local ~info:(info "merging into master") end
+
+(* print master val *)
+let master_val () = Lwt_main.run begin
+Git_store.get master ["path"] >|= fun s -> Printf.printf "%s\n" (intlist_to_string "" s) end
+
+(* print local val *)
+let local_val () = Lwt_main.run begin
+Git_store.get local ["path"] >|= fun s -> Printf.printf "%s\n" (intlist_to_string "" s) end
