@@ -2,6 +2,7 @@ open Lwt.Infix
 open Irmin_unix
 
 let rec intlist_to_string acc list =
+    let _ = Printf.printf "in intlist_to_string func \n" in
     (* convert list of ints to string of ints seperated by ';' *)
     match list with
         | [] -> acc
@@ -22,9 +23,17 @@ let rec create_map head map =
         | [x] -> IntMap.add x 1 map
         | x::xs -> create_map xs (IntMap.add x 1 map);;
 
+
 let find_count_in_map map x = 
     (* return count stored as value of key otherwise return 0 if not found *)
     try IntMap.find x map with Not_found -> 0;;
+
+let rec create_map_alt head map =
+    (* create a map from list of ints *)
+    match head with
+        | [] -> map
+        | [x] -> let curr_count = find_count_in_map map x in IntMap.add x (curr_count+1) map
+        | x::xs -> let curr_count = find_count_in_map map x in create_map xs (IntMap.add x (curr_count+1) map);;
 
 let rec handle_child_elements head child_map root_map = match head with
     (* add elements of head (a list) to child_map if not present in root_map
@@ -67,6 +76,16 @@ let combine_child_maps map_1 map_2 =
     let map_2_list = create_list_from_map map_2 [] in
     combine_map_and_list map_1 map_2_list;;
 
+let rec add_key_from_list map list = match list with
+    | [] -> map
+    | x::xs -> let curr_count = find_count_in_map map x in 
+        if curr_count = 0 then add_key_from_list (IntMap.add x 0 map) xs 
+        else add_key_from_list map xs
+
+let add_missing_key map_1 map_2 =
+    let map_2_list = create_list_from_map map_2 [] in
+    add_key_from_list map_1 map_2_list
+
 let rev_list list = 
     let rec rev acc = function
         | [] -> acc
@@ -91,6 +110,43 @@ let merge_3_intlist (root:int64 list) (left:int64 list) (right:int64 list) =
     let new_list = rev_list new_list in
     new_list;;
 
+let rec add_element_in_list count element list =
+    match count with
+        | 0 -> list
+        | x -> add_element_in_list (x-1) element (element::list)
+
+let rec combine_lists list_1 list_2 =
+    match list_2 with
+        | [] -> list_1
+        | x::xs -> combine_lists (x::list_1) xs
+
+let rec delete_element_from_list element list new_list =
+    match list with
+        | [] -> new_list
+        | x::xs -> if x = element then combine_lists new_list xs
+            else delete_element_from_list element xs (x::new_list)
+
+let rec create_new_list root_map right_map left_map root_list new_list =
+    match root_list with 
+        | [] -> new_list
+        | x::xs -> let root_count = find_count_in_map root_map x in
+            let left_count = find_count_in_map left_map x in
+            let right_count = find_count_in_map right_map x in
+            let new_count = right_count + left_count - root_count in
+            if new_count > 0 then
+                create_new_list root_map right_map left_map xs (add_element_in_list new_count x new_list)
+            else create_new_list root_map right_map left_map xs new_list
+
+let merge_3_intlist_alt (root:int64 list) (left:int64 list) (right:int64 list) = 
+    let root_map = create_map_alt root IntMap.empty in
+    let left_child_map = create_map_alt left IntMap.empty in
+    let right_child_map = create_map_alt right IntMap.empty in
+    let updated_root_map = add_missing_key root_map left_child_map in
+    let updated_root_map = add_missing_key updated_root_map right_child_map in
+    let root_list = create_list_from_map updated_root_map [] in
+    let new_list = create_new_list root_map right_child_map left_child_map root_list [] in
+    new_list
+
 module NewList = struct
     type t = int64 list
     let t = Irmin.Type.(list (int64))
@@ -100,7 +156,7 @@ module NewList = struct
         let open Irmin.Merge.Infix in
         old () >|=* fun old ->
         let old = match old with None -> [] | Some o -> o in
-        let merged_list = merge_3_intlist old a b in
+        let merged_list = merge_3_intlist_alt old a b in
         merged_list
     let merge = Irmin.Merge.(option (v t merge))
 end;;
@@ -136,6 +192,7 @@ let merge_in_master () = Lwt_main.run begin
 
 (* print master val *)
 let master_val () = Lwt_main.run begin
+    let _ = Printf.printf "in master_val func \n" in
     Git_store.get master ["path"] >|= fun s -> Printf.printf "%s\n" (intlist_to_string "" s) end;;
 
 (* print local val *)
@@ -157,12 +214,16 @@ let local_element_add val1 = Lwt_main.run begin
     Git_store.set_exn local ["path"] new_list ~info:(info "random") end;;
 
 (* remove element from master list *)
+let master_element_remove val1 = Lwt_main.run begin
+    Git_store.get master ["path"] >|= fun s -> let s = delete_element_from_list val1 s in
+    Git_store.set_exn master ["path"] s ~info:(info "random") end;;
 
 (* remove element from local list *)
 
 (* test merge function *)
 let test_merge () = Lwt_main.run begin
     (* create master branch *)
+    let _ = Printf.printf "in test_merge func \n" in
     Git_store.Repo.v git_config >>= Git_store.master >>= fun m_b ->
     (* create local branch *)
     Git_store.Repo.v git_config >>= fun repo -> Git_store.of_branch repo "local" >>= fun l_b ->
@@ -180,10 +241,18 @@ let test_merge () = Lwt_main.run begin
     let s = rev_list s in let new_list = 5L::s in let new_list = rev_list new_list in
     Git_store.set_exn l_b ["path"] new_list ~info:(info "adding second element local") >>= fun () ->
     (* merge master in local *)
-    Git_store.merge_into ~into:l_b m_b ~info:(info "merging into local") >>= fun _ ->
+    (* let _ = Git_store.get m_b ["path"] >|= fun s -> Printf.printf "master_branch: %s\n" (intlist_to_string "" s) in
+    let _ = Git_store.get l_b ["path"] >|= fun s -> Printf.printf "local_branch: %s\n" (intlist_to_string "" s) in *)
+    Git_store.merge_into ~into:m_b l_b ~info:(info "merging into master") >>= fun res -> match res with
     (* merge local in master *)
-    Git_store.merge_into ~into:m_b l_b ~info:(info "merging into master") >>= fun _ ->
-    Git_store.get m_b ["path"] >|= fun s -> 
+    (* Git_store.Repo.v git_config >>= Git_store.master >>= fun m_b_n -> *)
+    (* create local branch *)
+    (* Git_store.Repo.v git_config >>= fun repo -> Git_store.of_branch repo "local" >>= fun l_b_n -> *)
+    | Ok () -> Git_store.merge_into ~into:l_b m_b ~info:(info "merging into local")  >>= fun res -> 
+        Git_store.get m_b ["path"] >|= fun s -> assert ([1L;2L;1L;4L;5L] = s)
+    | Error conflict -> Git_store.merge_into ~into:l_b m_b ~info:(info "merging into local") >>= fun res -> 
+        Git_store.get m_b ["path"] >|= fun s -> assert ([1L;2L;1L;4L;5L] = s)
+    (* Git_store.get m_b_n ["path"] >|= fun s -> Printf.printf "final: %s\n" (intlist_to_string "" s) *)
     (* check if local val is equal to what is desired *)
-    assert ([1L;2L;1L;4L;5L] = s)
+    (* assert ([1L;2L;1L;4L;5L] = s) *)
 end;;
