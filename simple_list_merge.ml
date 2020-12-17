@@ -16,75 +16,30 @@ let string_to_intlist s =
 
 module IntMap = Map.Make(Int64);;
 
-let rec create_map head map =
-    (* create a map from list of ints *)
-    match head with
-        | [] -> map
-        | [x] -> IntMap.add x 1 map
-        | x::xs -> create_map xs (IntMap.add x 1 map);;
-
-
 let find_count_in_map map x = 
     (* return count stored as value of key otherwise return 0 if not found *)
     try IntMap.find x map with Not_found -> 0;;
 
-let rec create_map_alt head map =
+let rec create_map head map =
     (* create a map from list of ints *)
     match head with
         | [] -> map
         | [x] -> let curr_count = find_count_in_map map x in IntMap.add x (curr_count+1) map
         | x::xs -> let curr_count = find_count_in_map map x in create_map xs (IntMap.add x (curr_count+1) map);;
 
-let rec handle_child_elements head child_map root_map = match head with
-    (* add elements of head (a list) to child_map if not present in root_map
-    otherwise, increment count of val of root_map key by 1 *)
-    | [] -> child_map
-    | x::xs -> let count = find_count_in_map root_map x in
-        match count with
-            | 0 -> handle_child_elements xs (IntMap.add x 1 child_map) root_map
-            | _ -> handle_child_elements xs child_map root_map;;
-
-let rec modify_root_map_with_child_elements head root_map child_map = 
-    (* put elements of head (a list) in root_map(1 or +1) if not present in child_map *)
-    match head with
-        | [] -> root_map
-        | x::xs -> let count = find_count_in_map child_map x in
-            if count > 0 then modify_root_map_with_child_elements xs root_map child_map
-            else let new_count = find_count_in_map root_map x in
-                let new_count = new_count + 1 in
-                let new_root_map = IntMap.add x new_count root_map in
-                modify_root_map_with_child_elements xs new_root_map child_map;;
-
-let create_list_from_root_map root_map = 
-    (* iterate over root_map and accumulate items with count=3 in acc(a list) *)
-    IntMap.fold (fun k v acc -> if v = 3 then k::acc else acc) root_map [];;
-
 let create_list_from_map map acc =
     (* iterate over root_map and accumulate all items in acc(a list) *)
     IntMap.fold (fun k v acc -> k::acc) map [];;
-
-let rec combine_map_and_list map list =
-    (* if element of list not in map then add element in map *)
-    match list with 
-    | [] -> map
-    | x::xs -> let count = find_count_in_map map x in
-        if count = 0 then combine_map_and_list (IntMap.add x 1 map) xs
-        else combine_map_and_list map xs;;
-
-let combine_child_maps map_1 map_2 = 
-    (* iterate over map_2 and add elements in map_1 if missing *)
-    let map_2_list = create_list_from_map map_2 [] in
-    combine_map_and_list map_1 map_2_list;;
 
 let rec add_key_from_list map list = match list with
     | [] -> map
     | x::xs -> let curr_count = find_count_in_map map x in 
         if curr_count = 0 then add_key_from_list (IntMap.add x 0 map) xs 
-        else add_key_from_list map xs
+        else add_key_from_list map xs;;
 
 let add_missing_key map_1 map_2 =
     let map_2_list = create_list_from_map map_2 [] in
-    add_key_from_list map_1 map_2_list
+    add_key_from_list map_1 map_2_list;;
 
 let rev_list list = 
     let rec rev acc = function
@@ -92,39 +47,21 @@ let rev_list list =
         | h::t -> rev (h::acc) t in
     rev [] list;;
 
-let merge_3_intlist (root:int64 list) (left:int64 list) (right:int64 list) = 
-    (* root_map stores map of elements in root node *)
-    let root_map = create_map root IntMap.empty in
-    (* left_child_map stores map of elements in left_node not present in root_node *)
-    let left_child_map = handle_child_elements left IntMap.empty root_map in
-    (* root_map stores count of elements encountered in root_node and left_node *)
-    let root_map = modify_root_map_with_child_elements left root_map left_child_map in
-    (* right_child_map stores map of elements in left_node not present in root_node *)
-    let right_child_map = handle_child_elements right IntMap.empty root_map in
-    (* root_map stores count of elements encountered in root_node, left_node, right_node *)
-    let root_map = modify_root_map_with_child_elements right root_map right_child_map in
-    let new_list = create_list_from_root_map root_map in
-    let new_list = rev_list new_list in
-    let child_map = combine_child_maps left_child_map right_child_map in 
-    let new_list = create_list_from_map child_map new_list in
-    let new_list = rev_list new_list in
-    new_list;;
-
 let rec add_element_in_list count element list =
     match count with
         | 0 -> list
-        | x -> add_element_in_list (x-1) element (element::list)
+        | x -> add_element_in_list (x-1) element (element::list);;
 
 let rec combine_lists list_1 list_2 =
     match list_2 with
         | [] -> list_1
-        | x::xs -> combine_lists (x::list_1) xs
+        | x::xs -> combine_lists (x::list_1) xs;;
 
 let rec delete_element_from_list element list new_list =
     match list with
         | [] -> new_list
         | x::xs -> if x = element then combine_lists new_list xs
-            else delete_element_from_list element xs (x::new_list)
+            else delete_element_from_list element xs (x::new_list);;
 
 let rec create_new_list root_map right_map left_map root_list new_list =
     match root_list with 
@@ -135,17 +72,17 @@ let rec create_new_list root_map right_map left_map root_list new_list =
             let new_count = right_count + left_count - root_count in
             if new_count > 0 then
                 create_new_list root_map right_map left_map xs (add_element_in_list new_count x new_list)
-            else create_new_list root_map right_map left_map xs new_list
+            else create_new_list root_map right_map left_map xs new_list;;
 
-let merge_3_intlist_alt (root:int64 list) (left:int64 list) (right:int64 list) = 
-    let root_map = create_map_alt root IntMap.empty in
-    let left_child_map = create_map_alt left IntMap.empty in
-    let right_child_map = create_map_alt right IntMap.empty in
+let merge_3_intlist (root:int64 list) (left:int64 list) (right:int64 list) = 
+    let root_map = create_map root IntMap.empty in
+    let left_child_map = create_map left IntMap.empty in
+    let right_child_map = create_map right IntMap.empty in
     let updated_root_map = add_missing_key root_map left_child_map in
     let updated_root_map = add_missing_key updated_root_map right_child_map in
     let root_list = create_list_from_map updated_root_map [] in
     let new_list = create_new_list root_map right_child_map left_child_map root_list [] in
-    new_list
+    new_list;;
 
 module NewList = struct
     type t = int64 list
@@ -156,7 +93,7 @@ module NewList = struct
         let open Irmin.Merge.Infix in
         old () >|=* fun old ->
         let old = match old with None -> [] | Some o -> o in
-        let merged_list = merge_3_intlist_alt old a b in
+        let merged_list = merge_3_intlist old a b in
         merged_list
     let merge = Irmin.Merge.(option (v t merge))
 end;;
@@ -170,13 +107,13 @@ let info message = Irmin_unix.info ~author:"Example" "%s" message;;
 (* create master branch *)
 let master = Lwt_main.run begin Git_store.Repo.v git_config >>= Git_store.master end;;
 
-(* commit val in master *)
-let commit_in_master val1 = Lwt_main.run begin
-Git_store.set_exn master ["path"] val1 ~info:(info "random") end;;
-
 (* create local branch *)
 let local = Lwt_main.run begin Git_store.Repo.v git_config >>=
     fun repo -> Git_store.of_branch repo "local" end;;
+
+(* commit val in master *)
+let commit_in_master val1 = Lwt_main.run begin
+    Git_store.set_exn master ["path"] val1 ~info:(info "random") end;;
 
 (* commit val in local *)
 let commit_in_local val1 = Lwt_main.run begin
@@ -201,24 +138,23 @@ let local_val () = Lwt_main.run begin
 
 (* add element to master list *)
 let master_element_add val1 = Lwt_main.run begin
-    Git_store.get master ["path"] >|= fun s -> let s = rev_list s in
-    let new_list = val1::s in
-    let new_list = rev_list new_list in
-    Git_store.set_exn master ["path"] new_list ~info:(info "random") end;;
+    Git_store.get master ["path"] >|= fun s -> let s = (val1::s) in
+    Git_store.set_exn master ["path"] s ~info:(info "random") end;;
 
 (* add element to local list *)
 let local_element_add val1 = Lwt_main.run begin
-    Git_store.get local ["path"] >|= fun s -> let s = rev_list s in
-    let new_list = val1::s in
-    let new_list = rev_list new_list in
-    Git_store.set_exn local ["path"] new_list ~info:(info "random") end;;
+    Git_store.get local ["path"] >|= fun s -> let s = (val1::s) in
+    Git_store.set_exn local ["path"] s ~info:(info "random") end;;
 
 (* remove element from master list *)
 let master_element_remove val1 = Lwt_main.run begin
-    Git_store.get master ["path"] >|= fun s -> let s = delete_element_from_list val1 s in
+    Git_store.get master ["path"] >|= fun s -> let s = delete_element_from_list val1 s [] in
     Git_store.set_exn master ["path"] s ~info:(info "random") end;;
 
 (* remove element from local list *)
+let local_element_remove val1 = Lwt_main.run begin
+    Git_store.get local ["path"] >|= fun s -> let s = delete_element_from_list val1 s [] in
+    Git_store.set_exn local ["path"] s ~info:(info "random") end;;
 
 (* test merge function *)
 let test_merge () = Lwt_main.run begin
